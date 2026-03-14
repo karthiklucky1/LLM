@@ -22,8 +22,10 @@ model_config = dict(
     dropout    = 0.1,
 )
 
-train_data   = "datasets/train_v4.bin"
-val_data     = "datasets/val_v4.bin"
+# train_data   = "datasets/train_v4.bin"
+# val_data     = "datasets/val_v4.bin"
+train_data   = "/workspace/datasets/train_v4.bin"
+val_data     = "/workspace/datasets/val_v4.bin"
 batch_size   = 64
 grad_accum   = 4
 total_steps  = 100000
@@ -33,10 +35,12 @@ warmup_steps = 2000
 eval_every   = 500
 sample_every = 1000
 save_every   = 5000
-RESUME       = "checkpoints/minigpt_step_40000.pt"
+# RESUME       = "checkpoints/minigpt_step_40000.pt"
+RESUME       = "/workspace/checkpoints/minigpt_step_40000.pt"
 
 run_name = f"runpod_v4_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-ckpt_dir = f"checkpoints/{run_name}"
+# ckpt_dir = f"checkpoints/{run_name}"
+ckpt_dir = f"/workspace/checkpoints/{run_name}"
 os.makedirs(ckpt_dir, exist_ok=True)
 
 def get_batch(split):
