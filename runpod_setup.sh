@@ -8,15 +8,15 @@ echo "[1/6] Installing packages..."
 pip install sentencepiece datasets huggingface_hub -q
 
 echo "[2/6] Cloning repo..."
-git clone https://github.com/YOURUSERNAME/minigpt.git
-cd minigpt
+git clone https://github.com/karthiklucky1/LLM.git
+cd LLM
 
 echo "[3/6] Downloading checkpoint from HuggingFace..."
 mkdir -p checkpoints
 python3 -c "
 from huggingface_hub import hf_hub_download
 hf_hub_download(
-    repo_id='YOURUSERNAME/minigpt-checkpoints',
+    repo_id='karthiklucky/minigpt-checkpoints',
     filename='minigpt_step_40000.pt',
     local_dir='checkpoints'
 )"
