@@ -1,4 +1,4 @@
-import os,random
+import os, random
 import numpy as np
 import sentencepiece as spm
 
@@ -28,42 +28,41 @@ token_count=0
 
 for path,ratio in MIX.items():
 
-    if not os.path.exists(path): continue
+    if not os.path.exists(path):
+        continue
 
     print("loading",path)
 
     with open(path,encoding="utf8",errors="ignore") as f:
-        text=f.read()
 
-    docs=[d.strip() for d in text.split("\n\n") if len(d)>30]
+        for line in f:
 
-    target=int(len(docs)*ratio*10)
+            line=line.strip()
 
-    sample=random.sample(docs,min(target,len(docs)))
-
-    for d in sample:
-
-        tok=sp.encode(d)
-
-        for i in range(0,len(tok),BLOCK):
-
-            c=tok[i:i+BLOCK+1]
-
-            if len(c)<32:
+            if len(line)<30:
                 continue
 
-            arr=np.array(c,dtype=np.uint16)
+            tok=sp.encode(line)
 
-            if random.random()<0.1:
-                arr.tofile(val_file)
-            else:
-                arr.tofile(train_file)
+            for i in range(0,len(tok),BLOCK):
 
-            chunk_count+=1
-            token_count+=len(c)
+                c=tok[i:i+BLOCK+1]
 
-            if chunk_count%50000==0:
-                print("chunks",chunk_count,"tokens",token_count)
+                if len(c)<32:
+                    continue
+
+                arr=np.array(c,dtype=np.uint16)
+
+                if random.random()<0.1:
+                    arr.tofile(val_file)
+                else:
+                    arr.tofile(train_file)
+
+                chunk_count+=1
+                token_count+=len(c)
+
+                if chunk_count%50000==0:
+                    print("chunks:",chunk_count,"tokens:",token_count)
 
 train_file.close()
 val_file.close()
