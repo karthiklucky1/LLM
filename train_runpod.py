@@ -5,6 +5,8 @@ from model import MiniGPT
 import numpy as np
 import torch.nn.functional as F
 import torch
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 # train_runpod.py
 # RunPod A6000 optimized — DO NOT run on Mac
@@ -28,11 +30,11 @@ model_config = dict(
 
 train_data = "/workspace/LLM/datasets/train_v4.bin"
 val_data = "/workspace/LLM/datasets/val_v4.bin"
-batch_size = 64
+batch_size = 32
 grad_accum = 4
 total_steps = 100000
-max_lr = 3e-4
-min_lr = 3e-5
+max_lr = 1e-4
+min_lr = 1e-5
 warmup_steps = 2000
 eval_every = 500
 sample_every = 1000
@@ -81,7 +83,7 @@ else:
     print("No checkpoint found — training from scratch")
 
 model = model.to(device)
-model = torch.compile(model)
+# model = torch.compile(model)
 
 optimizer = torch.optim.AdamW(
     model.parameters(),
