@@ -18,36 +18,56 @@ MIX={
 
 sp=spm.SentencePieceProcessor(model_file=TOKENIZER)
 
-chunks=[]
+os.makedirs("datasets",exist_ok=True)
+
+train_file=open("datasets/train_v5.bin","wb")
+val_file=open("datasets/val_v5.bin","wb")
+
+chunk_count=0
+token_count=0
 
 for path,ratio in MIX.items():
+
     if not os.path.exists(path): continue
+
     print("loading",path)
-    txt=open(path,encoding="utf8",errors="ignore").read()
-    docs=[d.strip() for d in txt.split("\n\n") if len(d)>30]
+
+    with open(path,encoding="utf8",errors="ignore") as f:
+        text=f.read()
+
+    docs=[d.strip() for d in text.split("\n\n") if len(d)>30]
+
     target=int(len(docs)*ratio*10)
+
     sample=random.sample(docs,min(target,len(docs)))
 
     for d in sample:
+
         tok=sp.encode(d)
+
         for i in range(0,len(tok),BLOCK):
+
             c=tok[i:i+BLOCK+1]
-            if len(c)>=32: chunks.append(c)
 
-print("chunks",len(chunks))
+            if len(c)<32:
+                continue
 
-random.shuffle(chunks)
-tokens=[t for c in chunks for t in c]
+            arr=np.array(c,dtype=np.uint16)
 
-split=int(len(tokens)*0.9)
+            if random.random()<0.1:
+                arr.tofile(val_file)
+            else:
+                arr.tofile(train_file)
 
-train=np.array(tokens[:split],dtype=np.uint16)
-val=np.array(tokens[split:],dtype=np.uint16)
+            chunk_count+=1
+            token_count+=len(c)
 
-os.makedirs("datasets",exist_ok=True)
+            if chunk_count%50000==0:
+                print("chunks",chunk_count,"tokens",token_count)
 
-train.tofile("datasets/train_v5.bin")
-val.tofile("datasets/val_v5.bin")
+train_file.close()
+val_file.close()
 
-print("train tokens",len(train))
-print("val tokens",len(val))
+print("DONE")
+print("chunks:",chunk_count)
+print("tokens:",token_count)
