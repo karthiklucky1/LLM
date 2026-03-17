@@ -1,4 +1,4 @@
-import os, random
+import os,random
 import numpy as np
 import sentencepiece as spm
 
@@ -20,33 +20,40 @@ sp=spm.SentencePieceProcessor(model_file=TOKENIZER)
 
 os.makedirs("datasets",exist_ok=True)
 
-train_file=open("datasets/train_v5.bin","wb")
-val_file=open("datasets/val_v5.bin","wb")
+train=open("datasets/train_v5.bin","wb")
+val=open("datasets/val_v5.bin","wb")
 
-chunk_count=0
-token_count=0
+chunks=0
+tokens=0
+
+BATCH=1024
 
 for path,ratio in MIX.items():
 
-    if not os.path.exists(path):
+    if not os.path.exists(path): 
         continue
 
     print("loading",path)
 
-    with open(path,encoding="utf8",errors="ignore") as f:
+    txt=open(path,encoding="utf8",errors="ignore").read()
 
-        for line in f:
+    docs=[d.strip() for d in txt.split("\n\n") if len(d)>30]
 
-            line=line.strip()
+    target=int(len(docs)*ratio*10)
 
-            if len(line)<30:
-                continue
+    sample=random.sample(docs,min(target,len(docs)))
 
-            tok=sp.encode(line)
+    for i in range(0,len(sample),BATCH):
 
-            for i in range(0,len(tok),BLOCK):
+        batch=sample[i:i+BATCH]
 
-                c=tok[i:i+BLOCK+1]
+        tok_batch=sp.encode(batch)
+
+        for tok in tok_batch:
+
+            for j in range(0,len(tok),BLOCK):
+
+                c=tok[j:j+BLOCK+1]
 
                 if len(c)<32:
                     continue
@@ -54,19 +61,19 @@ for path,ratio in MIX.items():
                 arr=np.array(c,dtype=np.uint16)
 
                 if random.random()<0.1:
-                    arr.tofile(val_file)
+                    arr.tofile(val)
                 else:
-                    arr.tofile(train_file)
+                    arr.tofile(train)
 
-                chunk_count+=1
-                token_count+=len(c)
+                chunks+=1
+                tokens+=len(c)
 
-                if chunk_count%50000==0:
-                    print("chunks:",chunk_count,"tokens:",token_count)
+                if chunks%50000==0:
+                    print("chunks:",chunks,"tokens:",tokens)
 
-train_file.close()
-val_file.close()
+train.close()
+val.close()
 
 print("DONE")
-print("chunks:",chunk_count)
-print("tokens:",token_count)
+print("chunks:",chunks)
+print("tokens:",tokens)
