@@ -4,12 +4,15 @@ import math
 import os
 import numpy as np
 
+# ----------------------------
+# basic setup
+# ----------------------------
 device = "cuda"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 train_data = "datasets/train_v5.bin"
 val_data   = "datasets/val_v5.bin"
 
-# safer for A6000 with block_size=1024
 batch_size   = 8
 grad_accum   = 8
 total_steps  = 150000
@@ -20,6 +23,7 @@ warmup_steps = 2000
 
 eval_every   = 2000
 save_path    = "best.pt"
+seq_len      = 1024
 
 model_config = dict(
     n_layer=12,
@@ -30,38 +34,81 @@ model_config = dict(
     dropout=0.1,
 )
 
-# memory fragmentation fix
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-
+# ----------------------------
+# model / data / optimizer
+# ----------------------------
 model = MiniGPT(**model_config).to(device)
 model.train()
 
 train = np.memmap(train_data, dtype=np.uint16, mode="r")
 val   = np.memmap(val_data,   dtype=np.uint16, mode="r")
 
-opt = torch.optim.AdamW(model.parameters(), lr=max_lr, betas=(0.9, 0.95), weight_decay=0.1)
+opt = torch.optim.AdamW(
+    model.parameters(),
+    lr=max_lr,
+    betas=(0.9, 0.95),
+    weight_decay=0.1,
+)
 
-# AMP for speed + memory savings
 scaler = torch.amp.GradScaler("cuda")
 
+# ----------------------------
+# helpers
+# ----------------------------
 def get_lr(step: int) -> float:
     if step < warmup_steps:
         return max_lr * step / warmup_steps
-    progress = (step - warmup_steps) / (total_steps - warmup_steps)
+    progress = (step - warmup_steps) / max(1, (total_steps - warmup_steps))
     progress = min(max(progress, 0.0), 1.0)
     return min_lr + 0.5 * (max_lr - min_lr) * (1 + math.cos(math.pi * progress))
 
 def get_batch(data):
-    ix = torch.randint(len(data) - 1024 - 1, (batch_size,))
+    ix = torch.randint(len(data) - seq_len - 1, (batch_size,))
     x = torch.stack([
-        torch.from_numpy(data[i:i+1024].astype(np.int64))
+        torch.from_numpy(data[i:i+seq_len].astype(np.int64))
         for i in ix
     ])
     y = torch.stack([
-        torch.from_numpy(data[i+1:i+1025].astype(np.int64))
+        torch.from_numpy(data[i+1:i+seq_len+1].astype(np.int64))
         for i in ix
     ])
     return x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+
+def model_forward_and_loss(model, x, y):
+    """
+    Robustly handles different MiniGPT forward signatures:
+    1) model(x, y) -> (logits, loss)
+    2) model(x, y) -> (logits, loss, extra)
+    3) model(x)    -> logits
+    4) model(x, y) -> logits
+    """
+    try:
+        out = model(x, y)
+    except TypeError:
+        out = model(x)
+
+    if isinstance(out, tuple):
+        # look for a scalar tensor in the returned values => treat as loss
+        logits = out[0]
+        loss = None
+        for item in out[1:]:
+            if torch.is_tensor(item) and item.ndim == 0:
+                loss = item
+                break
+        if loss is None:
+            loss = torch.nn.functional.cross_entropy(
+                logits.view(-1, logits.size(-1)),
+                y.view(-1)
+            )
+        return logits, loss
+
+    # plain logits
+    logits = out
+    loss = torch.nn.functional.cross_entropy(
+        logits.view(-1, logits.size(-1)),
+        y.view(-1)
+    )
+    return logits, loss
 
 @torch.no_grad()
 def evaluate(num_batches: int = 10) -> float:
@@ -70,24 +117,14 @@ def evaluate(num_batches: int = 10) -> float:
     for _ in range(num_batches):
         x, y = get_batch(val)
         with torch.amp.autocast("cuda", dtype=torch.float16):
-            out = model(x, y)
-            if isinstance(out, tuple):
-                if len(out) == 3:
-                    _, loss, _ = out
-                else:
-                    _, loss = out
-            else:
-                logits = out
-                loss = torch.nn.functional.cross_entropy(
-                    logits.view(-1, logits.size(-1)),
-                    y.view(-1)
-                )
+            _, loss = model_forward_and_loss(model, x, y)
         total += loss.item()
     model.train()
     return total / num_batches
 
-best = 1e9
-
+# ----------------------------
+# startup sanity check
+# ----------------------------
 print("=" * 60)
 print("Training config")
 print(f"device        = {device}")
@@ -100,6 +137,17 @@ print(f"max_lr        = {max_lr}")
 print(f"min_lr        = {min_lr}")
 print("=" * 60)
 
+# optional quick sanity check before long training
+x0, y0 = get_batch(train)
+with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.float16):
+    logits0, loss0 = model_forward_and_loss(model, x0, y0)
+print(f"startup sanity | logits shape = {tuple(logits0.shape)} | loss = {loss0.item():.4f}", flush=True)
+
+best = 1e9
+
+# ----------------------------
+# training loop
+# ----------------------------
 for step in range(total_steps):
     lr = get_lr(step)
     for g in opt.param_groups:
@@ -112,22 +160,11 @@ for step in range(total_steps):
         x, y = get_batch(train)
 
         with torch.amp.autocast("cuda", dtype=torch.float16):
-            out = model(x, y)
-            if isinstance(out, tuple):
-                if len(out) == 3:
-                    _, loss, _ = out
-                else:
-                    _, loss = out
-            else:
-                logits = out
-                loss = torch.nn.functional.cross_entropy(
-                    logits.view(-1, logits.size(-1)),
-                    y.view(-1)
-                )
+            _, loss = model_forward_and_loss(model, x, y)
             loss = loss / grad_accum
 
         scaler.scale(loss).backward()
-        total_loss += loss.item()
+        total_loss += loss.item() * grad_accum
 
     scaler.unscale_(opt)
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
