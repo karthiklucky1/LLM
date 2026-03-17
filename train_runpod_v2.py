@@ -47,31 +47,65 @@ best=1e9
 
 for step in range(total_steps):
 
-    opt.param_groups[0]['lr']=lr(step)
-    opt.zero_grad()
+    opt.param_groups[0]['lr'] = lr(step)
+    opt.zero_grad(set_to_none=True)
+
+    total_loss = 0.0
 
     for _ in range(grad_accum):
-        x,y=batch(train)
-        logits=model(x)
+
+        x, y = batch(train)
+
+        logits = model(x)
+
         loss=torch.nn.functional.cross_entropy(
-            logits.view(-1,logits.size(-1)),
-            y.view(-1))
+            logits.view(-1, logits.size(-1)),
+            y.view(-1)
+        )
+
+        loss = loss / grad_accum   # ✅ FIXED
+
         loss.backward()
+
+        total_loss += loss.item()
+
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)  # ✅ IMPORTANT
 
     opt.step()
 
-    if step%100==0:
-        print(step,loss.item())
+    if step % 100 == 0:
+        print("step", step, "train", total_loss)
 
-    if step%2000==0:
-        x,y=batch(val)
+    # better validation
+    if step % 2000 == 0:
+
+        model.eval()
+        vloss_total = 0.0
+
         with torch.no_grad():
-            v=model(x)
-            vloss=torch.nn.functional.cross_entropy(
-                v.view(-1,v.size(-1)),y.view(-1)).item()
+            for _ in range(10):   # ✅ average over 10 batches
+                x, y = batch(val)
+                v = model(x)
 
-        print("val",vloss)
+                vloss = torch.nn.functional.cross_entropy(
+                    v.view(-1, v.size(-1)),
+                    y.view(-1)
+                )
 
-        if vloss<best:
-            best=vloss
-            torch.save(model.state_dict(),"best.pt")
+                vloss_total += vloss.item()
+
+        vloss_avg = vloss_total / 10
+
+        print("val", vloss_avg)
+
+        model.train()
+
+        if vloss_avg < best:
+            best = vloss_avg
+
+            torch.save({
+                "model": model.state_dict(),
+                "step": step,
+                "val_loss": vloss_avg,
+                "config": model_config
+            }, "best.pt")
