@@ -42,7 +42,7 @@ val   = np.memmap(val_data,   dtype=np.uint16, mode="r")
 opt = torch.optim.AdamW(model.parameters(), lr=max_lr, betas=(0.9, 0.95), weight_decay=0.1)
 
 # AMP for speed + memory savings
-scaler = torch.cuda.amp.GradScaler()
+scaler = torch.amp.GradScaler("cuda")
 
 def get_lr(step: int) -> float:
     if step < warmup_steps:
@@ -63,24 +63,25 @@ def get_batch(data):
     ])
     return x.to(device, non_blocking=True), y.to(device, non_blocking=True)
 
-def forward_logits(x):
-    out = model(x)
-    if isinstance(out, tuple):
-        return out[0]
-    return out
-
 @torch.no_grad()
 def evaluate(num_batches: int = 10) -> float:
     model.eval()
     total = 0.0
     for _ in range(num_batches):
         x, y = get_batch(val)
-        with torch.cuda.amp.autocast():
-            logits = forward_logits(x)
-            loss = torch.nn.functional.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                y.view(-1)
-            )
+        with torch.amp.autocast("cuda", dtype=torch.float16):
+            out = model(x, y)
+            if isinstance(out, tuple):
+                if len(out) == 3:
+                    _, loss, _ = out
+                else:
+                    _, loss = out
+            else:
+                logits = out
+                loss = torch.nn.functional.cross_entropy(
+                    logits.view(-1, logits.size(-1)),
+                    y.view(-1)
+                )
         total += loss.item()
     model.train()
     return total / num_batches
@@ -110,12 +111,19 @@ for step in range(total_steps):
     for _ in range(grad_accum):
         x, y = get_batch(train)
 
-        with torch.cuda.amp.autocast():
-            logits = forward_logits(x)
-            loss = torch.nn.functional.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                y.view(-1)
-            )
+        with torch.amp.autocast("cuda", dtype=torch.float16):
+            out = model(x, y)
+            if isinstance(out, tuple):
+                if len(out) == 3:
+                    _, loss, _ = out
+                else:
+                    _, loss = out
+            else:
+                logits = out
+                loss = torch.nn.functional.cross_entropy(
+                    logits.view(-1, logits.size(-1)),
+                    y.view(-1)
+                )
             loss = loss / grad_accum
 
         scaler.scale(loss).backward()
