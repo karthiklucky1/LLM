@@ -222,7 +222,7 @@ class MiniGPT(nn.Module):
         return logits, loss, new_caches
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, top_p=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, top_p=None, repetition_penalty=1.0):
         kv_cache = [None] * len(self.blocks)
         logits, _, kv_cache = self(idx, kv_cache=kv_cache)
 
@@ -233,6 +233,15 @@ class MiniGPT(nn.Module):
                 idx = torch.cat([idx, next_id], dim=1)
                 logits, _, kv_cache = self(next_id, kv_cache=kv_cache)
                 continue
+
+            # repetition penalty
+            if repetition_penalty != 1.0:
+                for token_id in set(idx[0].tolist()):
+                    if token_id < logits.shape[-1]:
+                        if logits[0, token_id] > 0:
+                            logits[0, token_id] /= repetition_penalty
+                        else:
+                            logits[0, token_id] *= repetition_penalty
 
             logits = logits / temperature
 
