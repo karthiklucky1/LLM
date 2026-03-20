@@ -97,8 +97,8 @@ def generate_text(
     prompt,
     checkpoint_path="minigpt.pt",
     max_new_tokens=150,
-    temperature=0.8,
-    top_k=50,
+    temperature=0.6,
+    top_k=40,
     top_p=0.9,
     n_layer_override=None,
     n_head_override=None,
@@ -132,8 +132,8 @@ def generate_with_model(
     tokenizer,
     device,
     max_new_tokens=150,
-    temperature=0.8,
-    top_k=50,
+    temperature=0.6,
+    top_k=40,
     top_p=0.9,
 ):
     idx = torch.tensor([tokenizer.encode(prompt)],
@@ -154,7 +154,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--max-new-tokens", type=int, default=150)
-    parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--top-k", type=int, default=50)
     parser.add_argument("--top-p", type=float, default=0.9)
     args = parser.parse_args()

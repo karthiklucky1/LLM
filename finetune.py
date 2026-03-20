@@ -19,7 +19,7 @@ def resolve_checkpoint():
 
 
 def load_state_dict(path, device):
-    ckpt = torch.load(path, map_location=device)
+    ckpt = torch.load(path, map_location=device, weights_only=False)
     return ckpt["model"] if isinstance(ckpt, dict) and "model" in ckpt else ckpt
 
 
@@ -68,13 +68,13 @@ def main():
 
     batch_size = 8
     grad_accum = 8
-    steps = 8000
-    eval_every = 500
+    steps = 6000
+    eval_every = 200
     seq_len = 1024
 
-    max_lr = 2e-5
-    min_lr = 2e-6
-    warmup_steps = 200
+    max_lr = 4e-5
+    min_lr = 5e-6
+    warmup_steps = 100
 
     model_config = dict(
         n_layer=12,
@@ -96,11 +96,16 @@ def main():
     print(f"base checkpoint: {checkpoint_path}")
 
     model = MiniGPT(**model_config).to(device)
-    state_dict = load_state_dict(checkpoint_path, device)
-    compatible, skipped = load_compatible_weights(model, state_dict)
-    print(f"loaded tensors: {len(compatible)}/{len(model.state_dict())}")
-    if skipped:
-        print(f"skipped tensors: {len(skipped)}")
+    if os.path.exists("best_finetuned.pt"):
+        ckpt = torch.load("best_finetuned.pt", map_location=device, weights_only=False)
+        model.load_state_dict(ckpt["model"])
+        print("Resumed from best_finetuned.pt")
+    else:
+        state_dict = load_state_dict(checkpoint_path, device)
+        compatible, skipped = load_compatible_weights(model, state_dict)
+        print(f"loaded base tensors: {len(compatible)}/{len(model.state_dict())}")
+        if skipped:
+            print(f"skipped tensors: {len(skipped)}")
     model.train()
 
     train = np.memmap(train_data, dtype=np.uint16, mode="r")

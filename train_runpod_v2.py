@@ -75,41 +75,8 @@ def get_batch(data):
     return x.to(device, non_blocking=True), y.to(device, non_blocking=True)
 
 def model_forward_and_loss(model, x, y):
-    """
-    Robustly handles different MiniGPT forward signatures:
-    1) model(x, y) -> (logits, loss)
-    2) model(x, y) -> (logits, loss, extra)
-    3) model(x)    -> logits
-    4) model(x, y) -> logits
-    """
-    try:
-        out = model(x, y)
-    except TypeError:
-        out = model(x)
-
-    if isinstance(out, tuple):
-        # look for a scalar tensor in the returned values => treat as loss
-        logits = out[0]
-        loss = None
-        for item in out[1:]:
-            if torch.is_tensor(item) and item.ndim == 0:
-                loss = item
-                break
-        if loss is None:
-            loss = torch.nn.functional.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                y.view(-1)
-            )
-        return logits, loss
-
-    # plain logits
-    logits = out
-    loss = torch.nn.functional.cross_entropy(
-        logits.view(-1, logits.size(-1)),
-        y.view(-1)
-    )
+    logits, loss, _ = model(x, targets=y)
     return logits, loss
-
 @torch.no_grad()
 def evaluate(num_batches: int = 10) -> float:
     model.eval()
